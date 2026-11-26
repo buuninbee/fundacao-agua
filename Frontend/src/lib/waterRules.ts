@@ -426,3 +426,135 @@ export function validateCalibrationInput(input: {
   }
   return {}
 }
+
+export interface BulletinIndicators {
+  total: number
+  excellentCount: number
+  attentionCount: number
+  criticalCount: number
+  compliancePct: number
+  anomalyPct: number
+  iqaScore: number
+  iqaLabel: 'Ótima' | 'Boa' | 'Regular' | 'Crítica'
+  avgReservoirPct: number
+  turbidityTrend: 'Em alta' | 'Em queda' | 'Estável'
+  maxConsecutiveCritical: number
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v))
+}
+
+function readingIqaScore(r: { ph: number; turbidity: number; temperature: number }): number {
+  // pH sub-score (0..100): ideal 6.5..8.5, safe 6.0..9.5
+  let phScore = 100
+  if (r.ph < 6.5) {
+    phScore = r.ph >= 6.0 ? 55 + ((r.ph - 6.0) / 0.5) * 45 : clamp(55 - (6.0 - r.ph) * 30, 10, 55)
+  } else if (r.ph > 8.5) {
+    phScore = r.ph <= 9.5 ? 55 + ((9.5 - r.ph) / 1.0) * 45 : clamp(55 - (r.ph - 9.5) * 30, 10, 55)
+  }
+
+  // Turbidity sub-score (0..100): ideal <= 1 UNT, attention 4..5, critical >= 5
+  let turbScore = 100
+  if (r.turbidity > 1.0) {
+    if (r.turbidity <= 4.0) {
+      turbScore = 100 - ((r.turbidity - 1.0) / 3.0) * 30
+    } else if (r.turbidity <= 5.0) {
+      turbScore = 70 - ((r.turbidity - 4.0) / 1.0) * 30
+    } else {
+      turbScore = clamp(40 - ((r.turbidity - 5.0) / 5.0) * 35, 5, 40)
+    }
+  }
+
+  // Temperature sub-score (0..100): ideal <= 22 C, critical >= 25 C
+  let tempScore = 100
+  if (r.temperature > 22.0) {
+    tempScore =
+      r.temperature <= 25.0
+        ? 100 - ((r.temperature - 22.0) / 3.0) * 45
+        : clamp(55 - ((r.temperature - 25.0) / 7.0) * 45, 10, 55)
+  }
+
+  return phScore * 0.4 + turbScore * 0.4 + tempScore * 0.2
+}
+
+export function computeBulletinIndicators(readings: SensorReading[]): BulletinIndicators {
+  const total = readings.length
+  if (total === 0) {
+    return {
+      total: 0,
+      excellentCount: 0,
+      attentionCount: 0,
+      criticalCount: 0,
+      compliancePct: 0,
+      anomalyPct: 0,
+      iqaScore: 0,
+      iqaLabel: 'Crítica',
+      avgReservoirPct: 0,
+      turbidityTrend: 'Estável',
+      maxConsecutiveCritical: 0,
+    }
+  }
+
+  const sorted = [...readings].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  )
+
+  let excellentCount = 0
+  let attentionCount = 0
+  let criticalCount = 0
+  let iqaSum = 0
+  let reservoirSum = 0
+  let streak = 0
+  let maxConsecutiveCritical = 0
+
+  for (const r of sorted) {
+    const status = classifyWaterStatus(r)
+    if (status === 'Excelente') {
+      excellentCount += 1
+      streak = 0
+    } else if (status === 'Atenção') {
+      attentionCount += 1
+      streak = 0
+    } else {
+      criticalCount += 1
+      streak += 1
+      if (streak > maxConsecutiveCritical) maxConsecutiveCritical = streak
+    }
+    iqaSum += readingIqaScore(r)
+    reservoirSum += r.reservoirLevel
+  }
+
+  const iqaScore = Math.round(iqaSum / total)
+  const iqaLabel: BulletinIndicators['iqaLabel'] =
+    iqaScore >= 85 ? 'Ótima' : iqaScore >= 70 ? 'Boa' : iqaScore >= 50 ? 'Regular' : 'Crítica'
+
+  let turbidityTrend: BulletinIndicators['turbidityTrend'] = 'Estável'
+  if (sorted.length >= 2) {
+    const windowSize = Math.max(1, Math.floor(sorted.length / 3))
+    const firstAvg =
+      sorted.slice(0, windowSize).reduce((s, r) => s + r.turbidity, 0) / windowSize
+    const lastAvg =
+      sorted.slice(-windowSize).reduce((s, r) => s + r.turbidity, 0) / windowSize
+    const delta = lastAvg - firstAvg
+    if (delta >= 0.3) turbidityTrend = 'Em alta'
+    else if (delta <= -0.3) turbidityTrend = 'Em queda'
+  }
+
+  const compliancePct = Number(((excellentCount / total) * 100).toFixed(1))
+  const anomalyPct = Number((((attentionCount + criticalCount) / total) * 100).toFixed(1))
+
+  return {
+    total,
+    excellentCount,
+    attentionCount,
+    criticalCount,
+    compliancePct,
+    anomalyPct,
+    iqaScore,
+    iqaLabel,
+    avgReservoirPct: Math.round(reservoirSum / total),
+    turbidityTrend,
+    maxConsecutiveCritical,
+  }
+}

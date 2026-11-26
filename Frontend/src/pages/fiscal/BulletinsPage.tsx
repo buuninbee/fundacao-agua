@@ -29,6 +29,7 @@ import { downloadTechnicalBulletinPdf } from "@/lib/bulletinPdf";
 import {
   addDaysToIsoDate,
   classifyWaterStatus,
+  computeBulletinIndicators,
   computeMetricStats,
   filterReadingsByDateRange,
   formatCoordinatesWGS84,
@@ -238,6 +239,11 @@ export function BulletinsPage() {
       temperature: computeMetricStats(activeReadings.map((r) => r.temperature)),
     };
   }, [activeReadings]);
+
+  const indicators = useMemo(
+    () => computeBulletinIndicators(activeReadings),
+    [activeReadings]
+  );
 
   const paramSummaryStatus = useMemo(() => {
     if (activeReadings.length === 0) {
@@ -960,9 +966,129 @@ export function BulletinsPage() {
                   )}
                 </div>
 
-                {/* Statistical Summary Table (recomputed dynamically for activeReadings) */}
+                {/* Executive Indicators + Statistical Summary Table (recomputed dynamically for activeReadings) */}
                 {activeReadings.length > 0 && (
                   <>
+                    <div>
+                      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+                        <h3 className="font-serif text-lg font-bold text-blue-900">
+                          Indicadores Executivos (incluídos no PDF)
+                        </h3>
+                        <span className="text-xs text-purple-900">
+                          PDF inclui gráficos vetoriais de Turbidez/pH, Distribuição Sanitária e Temperatura
+                        </span>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="rounded-xl border border-purple-600 bg-white p-3.5 space-y-1.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-400">
+                            Conformidade Sanitária
+                          </p>
+                          <p
+                            className={`text-2xl font-bold tabular-nums ${
+                              indicators.compliancePct >= 80
+                                ? "text-emerald-700"
+                                : indicators.compliancePct >= 50
+                                  ? "text-amber-700"
+                                  : "text-red-600"
+                            }`}
+                          >
+                            {formatDecimalBR(indicators.compliancePct, 1)}%
+                          </p>
+                          <div className="h-1.5 w-full rounded-full bg-purple-200 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${
+                                indicators.compliancePct >= 80
+                                  ? "bg-emerald-600"
+                                  : indicators.compliancePct >= 50
+                                    ? "bg-amber-500"
+                                    : "bg-red-600"
+                              }`}
+                              style={{ width: `${Math.min(100, indicators.compliancePct)}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-purple-900 tabular-nums">
+                            {indicators.excellentCount} de {indicators.total} leituras Excelentes
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-purple-600 bg-white p-3.5 space-y-1.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-400">
+                            IQA Simplificado
+                          </p>
+                          <div className="flex items-baseline gap-2">
+                            <p className="text-2xl font-bold tabular-nums text-blue-900">
+                              {indicators.iqaScore}
+                              <span className="text-sm font-medium text-purple-900">/100</span>
+                            </p>
+                            <Badge
+                              variant={
+                                indicators.iqaScore >= 70
+                                  ? "excellent"
+                                  : indicators.iqaScore >= 50
+                                    ? "attention"
+                                    : "critical"
+                              }
+                            >
+                              {indicators.iqaLabel}
+                            </Badge>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-purple-200 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-blue-500"
+                              style={{ width: `${Math.min(100, indicators.iqaScore)}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-purple-900">
+                            Composto: pH (40%) · Turbidez (40%) · Temp. (20%)
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-purple-600 bg-white p-3.5 space-y-1.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-400">
+                            Anomalias no Escopo
+                          </p>
+                          <p
+                            className={`text-2xl font-bold tabular-nums ${
+                              indicators.criticalCount > 0
+                                ? "text-red-600"
+                                : indicators.attentionCount > 0
+                                  ? "text-amber-700"
+                                  : "text-emerald-700"
+                            }`}
+                          >
+                            {indicators.criticalCount + indicators.attentionCount}{" "}
+                            <span className="text-xs font-medium text-purple-900">
+                              ({formatDecimalBR(indicators.anomalyPct, 1)}%)
+                            </span>
+                          </p>
+                          <p className="text-xs text-purple-900 tabular-nums">
+                            {indicators.criticalCount} crítica(s) · {indicators.attentionCount} atenção
+                          </p>
+                          <p className="text-[11px] text-purple-900 tabular-nums">
+                            Maior sequência crítica: <strong>{indicators.maxConsecutiveCritical}</strong>
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-purple-600 bg-white p-3.5 space-y-1.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-400">
+                            Reservatório & Tendência
+                          </p>
+                          <p className="text-2xl font-bold tabular-nums text-blue-900">
+                            {indicators.avgReservoirPct}%
+                          </p>
+                          <div className="h-1.5 w-full rounded-full bg-purple-200 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-orange-500"
+                              style={{ width: `${Math.min(100, indicators.avgReservoirPct)}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-purple-900">
+                            Turbidez: <strong className="text-blue-900">{indicators.turbidityTrend}</strong>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
                     <div>
                       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
                         <h3 className="font-serif text-lg font-bold text-blue-900">

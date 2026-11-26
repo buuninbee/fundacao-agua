@@ -5,6 +5,7 @@ import {
   classifyConnectivity,
   classifyRssi,
   classifyWaterStatus,
+  computeBulletinIndicators,
   computeMetricStats,
   computeSectorConsolidation,
   filterReadingsByDateRange,
@@ -179,4 +180,41 @@ assert.equal(
   'Valor de offset fora dos limites tolerados pelo fabricante. Verifique a medição',
 )
 
-console.log('✓ Todas as regras sanitárias, morador, liderança, IoT e TI (HU-01 a HU-13) passaram.')
+import { buildTechnicalBulletinPdf } from '../src/lib/bulletinPdf.ts'
+
+// HU-MIPC-03: Indicadores do boletim e geração vetorial de PDF com gráficos
+const mixedReadings = [
+  { id: 'r1', timestamp: '2026-11-16T10:00:00Z', ph: 7.1, turbidity: 1.0, temperature: 20.5, reservoirLevel: 80 },
+  { id: 'r2', timestamp: '2026-11-17T10:00:00Z', ph: 7.2, turbidity: 4.2, temperature: 24.0, reservoirLevel: 76 },
+  { id: 'r3', timestamp: '2026-11-18T10:00:00Z', ph: 5.8, turbidity: 5.4, temperature: 26.0, reservoirLevel: 72 },
+  { id: 'r4', timestamp: '2026-11-19T10:00:00Z', ph: 5.7, turbidity: 6.1, temperature: 25.5, reservoirLevel: 70 },
+]
+const ind = computeBulletinIndicators(mixedReadings)
+assert.equal(ind.total, 4)
+assert.equal(ind.excellentCount, 1)
+assert.equal(ind.attentionCount, 1)
+assert.equal(ind.criticalCount, 2)
+assert.equal(ind.compliancePct, 25)
+assert.equal(ind.maxConsecutiveCritical, 2)
+assert.equal(ind.turbidityTrend, 'Em alta')
+assert.ok(ind.iqaScore > 0 && ind.iqaScore < 100)
+
+const pdfDoc = buildTechnicalBulletinPdf({
+  protocolCode: 'BT-MIPC-2026-0099',
+  well: { ...baseWell, currentReading: { ph: 5.7, turbidity: 6.1, temperature: 25.5 }, history: mixedReadings },
+  periodStart: '2026-11-16',
+  periodEnd: '2026-11-19',
+  readings: mixedReadings,
+  maintenances: [],
+  issuerId: 'FISC-014',
+  issuerName: 'Mariana Souza',
+  integrityHash: 'A'.repeat(64),
+  generatedAt: '2026-11-25T23:00:00.000Z',
+})
+const pdfBytes = new Uint8Array(pdfDoc.output('arraybuffer'))
+const pdfHeader = new TextDecoder().decode(pdfBytes.slice(0, 5))
+assert.equal(pdfHeader, '%PDF-')
+assert.ok(pdfBytes.byteLength > 4000, `PDF muito pequeno: ${pdfBytes.byteLength} bytes`)
+assert.ok(pdfDoc.getNumberOfPages() >= 1)
+
+console.log(`✓ Todas as regras sanitárias, morador, liderança, IoT, TI e PDF vetorial (${pdfBytes.byteLength} bytes, ${pdfDoc.getNumberOfPages()} pág.) passaram.`)
