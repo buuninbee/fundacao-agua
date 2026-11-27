@@ -26,7 +26,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const PLATFORM_ROLES: { role: PlatformRole; scope: string }[] = [
-  { role: 'Administrador TI', scope: 'Configurações globais, RBAC, sessões e trilha de auditoria.' },
+  { role: 'Administrador TI', scope: 'Configurações globais, permissões, sessões e trilha de auditoria.' },
   { role: 'Fiscal / Agente de Campo', scope: 'Monitoramento IoT, inspeções, manutenção e boletins.' },
   { role: 'Analista Sanitário', scope: 'Validação de dados, relatórios técnicos e laudos.' },
   { role: 'Liderança Comunitária', scope: 'Indicadores consolidados, urgências e workshops.' },
@@ -63,7 +63,7 @@ export function AccessControlPage() {
             Governança e Segurança · HU-MIPC-13
           </span>
           <h1 className="mt-0.5 font-serif text-2xl sm:text-3xl font-bold text-blue-900">
-            Gestão de Usuários e Permissões (RBAC)
+            Gestão de Usuários e Permissões
           </h1>
           <p className="mt-0.5 text-sm text-purple-900">
             Gerencie perfis de acesso, revogue sessões instantaneamente e acompanhe a trilha de
@@ -183,13 +183,10 @@ export function AccessControlPage() {
             </CardContent>
           </Card>
 
-          {/* Compact RBAC Matrix */}
+          {/* Permissions Matrix */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle>Matriz de Permissões por Perfil (RBAC)</CardTitle>
-              <CardDescription>
-                Escopo autorizado na plataforma (credenciais protegidas com bcrypt + JWT).
-              </CardDescription>
+              <CardTitle>Matriz de Permissões por Perfil</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-xs">
               {PLATFORM_ROLES.map((item) => (
@@ -273,7 +270,7 @@ export function AccessControlPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="usr-role">Perfil de Acesso (RBAC) *</Label>
+              <Label htmlFor="usr-role">Perfil de Acesso *</Label>
               <Select value={role} onValueChange={(v) => setRole(v as PlatformRole)}>
                 <SelectTrigger id="usr-role">
                   <SelectValue />
