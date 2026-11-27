@@ -36,6 +36,7 @@ import {
   formatDateBR,
   formatDecimalBR,
   generateIntegrityHash,
+  isValidWaterTemperature,
 } from "@/lib/waterRules";
 import type { SensorReading, WaterStatus } from "@/types/mipc";
 import { WellsMap } from "@/components/WellsMap";
@@ -233,10 +234,15 @@ export function BulletinsPage() {
   );
 
   const stats = useMemo(() => {
+    const validTemps = activeReadings
+      .map((r) => r.temperature)
+      .filter((t) => isValidWaterTemperature(t));
     return {
       ph: computeMetricStats(activeReadings.map((r) => r.ph)),
       turbidity: computeMetricStats(activeReadings.map((r) => r.turbidity)),
-      temperature: computeMetricStats(activeReadings.map((r) => r.temperature)),
+      temperature: computeMetricStats(
+        validTemps.length > 0 ? validTemps : activeReadings.map((r) => r.temperature)
+      ),
     };
   }, [activeReadings]);
 

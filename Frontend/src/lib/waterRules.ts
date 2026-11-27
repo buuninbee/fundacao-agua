@@ -4,6 +4,13 @@ export const COMM_TIMEOUT_MINUTES = 30
 export const MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024 // 5 MB
 
 /**
+ * Filters out hardware disconnect sentinels (e.g., DS18B20 -127 °C) from temperature stats/charts.
+ */
+export function isValidWaterTemperature(temp: number): boolean {
+  return Number.isFinite(temp) && temp >= 0 && temp <= 60
+}
+
+/**
  * HU-MIPC-01 sanitary alert classification:
  * - Crítico: pH < 6.0 ou > 9.5, turbidez >= 5 UNT ou temperatura >= 25 °C
  * - Atenção: turbidez entre 4 e 5 UNT (4 <= t < 5) ou pequenas oscilações de pH (< 6.5 ou > 9.0)

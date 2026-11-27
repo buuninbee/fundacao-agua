@@ -16,6 +16,7 @@ import {
   generateIntegrityHash,
   getResidentWaterGuidance,
   hasCommunicationFailure,
+  isValidWaterTemperature,
   validateCalibrationInput,
   validateEmergencyInput,
   validateOmbudsmanInput,
@@ -183,18 +184,24 @@ assert.equal(
 import { buildTechnicalBulletinPdf } from '../src/lib/bulletinPdf.ts'
 
 // HU-MIPC-03: Indicadores do boletim e geração vetorial de PDF com gráficos
+// Hardware disconnect sentinel filtering (DS18B20 -127 °C)
+assert.equal(isValidWaterTemperature(-127), false)
+assert.equal(isValidWaterTemperature(24.5), true)
+assert.equal(isValidWaterTemperature(85), false)
+
 const mixedReadings = [
+  { id: 'r0', timestamp: '2026-11-15T10:00:00Z', ph: 7.1, turbidity: 1.0, temperature: -127, reservoirLevel: 80 },
   { id: 'r1', timestamp: '2026-11-16T10:00:00Z', ph: 7.1, turbidity: 1.0, temperature: 20.5, reservoirLevel: 80 },
   { id: 'r2', timestamp: '2026-11-17T10:00:00Z', ph: 7.2, turbidity: 4.2, temperature: 24.0, reservoirLevel: 76 },
   { id: 'r3', timestamp: '2026-11-18T10:00:00Z', ph: 5.8, turbidity: 5.4, temperature: 26.0, reservoirLevel: 72 },
   { id: 'r4', timestamp: '2026-11-19T10:00:00Z', ph: 5.7, turbidity: 6.1, temperature: 25.5, reservoirLevel: 70 },
 ]
 const ind = computeBulletinIndicators(mixedReadings)
-assert.equal(ind.total, 4)
-assert.equal(ind.excellentCount, 1)
+assert.equal(ind.total, 5)
+assert.equal(ind.excellentCount, 2)
 assert.equal(ind.attentionCount, 1)
 assert.equal(ind.criticalCount, 2)
-assert.equal(ind.compliancePct, 25)
+assert.equal(ind.compliancePct, 40)
 assert.equal(ind.maxConsecutiveCritical, 2)
 assert.equal(ind.turbidityTrend, 'Em alta')
 assert.ok(ind.iqaScore > 0 && ind.iqaScore < 100)

@@ -12,6 +12,7 @@ import {
   formatCoordinatesWGS84,
   formatDateBR,
   formatDecimalBR,
+  isValidWaterTemperature,
 } from './waterRules.ts'
 
 export interface GenerateBulletinPdfInput {
@@ -47,12 +48,28 @@ function statusRgb(status: WaterStatus): Rgb {
   return COLOR_GREEN
 }
 
-function shortDateLabel(iso: string): string {
+function shortAxisLabel(iso: string, sameDay: boolean): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso.slice(0, 5)
+  if (sameDay) {
+    const h = String(d.getHours()).padStart(2, '0')
+    const m = String(d.getMinutes()).padStart(2, '0')
+    return `${h}:${m}`
+  }
   const day = String(d.getDate()).padStart(2, '0')
   const month = String(d.getMonth() + 1).padStart(2, '0')
   return `${day}/${month}`
+}
+
+function isSameCalendarDay(points: SensorReading[]): boolean {
+  if (points.length < 2) return false
+  const first = new Date(points[0].timestamp)
+  const last = new Date(points[points.length - 1].timestamp)
+  return (
+    first.getFullYear() === last.getFullYear() &&
+    first.getMonth() === last.getMonth() &&
+    first.getDate() === last.getDate()
+  )
 }
 
 function drawFooter(
@@ -260,16 +277,17 @@ function drawTurbidityPhChart(
   })
 
   // X-axis labels (at most 7 evenly spaced labels)
+  const sameDay = isSameCalendarDay(points)
   const maxLabels = Math.min(7, points.length)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.3)
   doc.setTextColor(...COLOR_MUTED)
   if (maxLabels === 1) {
-    doc.text(shortDateLabel(points[0].timestamp), xForIndex(0), py + ph + 4.5, { align: 'center' })
+    doc.text(shortAxisLabel(points[0].timestamp, false), xForIndex(0), py + ph + 4.5, { align: 'center' })
   } else {
     for (let k = 0; k < maxLabels; k++) {
       const idx = Math.round((k / (maxLabels - 1)) * (points.length - 1))
-      doc.text(shortDateLabel(points[idx].timestamp), xForIndex(idx), py + ph + 4.5, {
+      doc.text(shortAxisLabel(points[idx].timestamp, sameDay), xForIndex(idx), py + ph + 4.5, {
         align: 'center',
       })
     }
@@ -349,6 +367,7 @@ function drawStatusDistributionChart(
 
 /**
  * Vector Temperature Line Chart with 25 C critical threshold.
+ * Discards hardware disconnect sentinels (e.g., DS18B20 -127 °C) so the Y-axis stays readable.
  */
 function drawTemperatureChart(
   doc: jsPDF,
@@ -363,29 +382,48 @@ function drawTemperatureChart(
   doc.setLineWidth(0.3)
   doc.roundedRect(x, y, w, h, 2, 2, 'FD')
 
+  const validReadings = readings.filter((r) => isValidWaterTemperature(r.temperature))
+  const discardedCount = readings.length - validReadings.length
+
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8.2)
   doc.setTextColor(...COLOR_BLUE_900)
   doc.text('Temperatura da Água (°C)', x + 4, y + 6)
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
+  doc.setFontSize(6.3)
   doc.setTextColor(...COLOR_RED)
-  doc.text('Limite: 25,0 °C', x + w - 4, y + 6, { align: 'right' })
+  const rightLabel =
+    discardedCount > 0
+      ? `Limite: 25,0 °C · ${discardedCount} falha(s) ignorada(s)`
+      : 'Limite: 25,0 °C'
+  doc.text(rightLabel, x + w - 4, y + 6, { align: 'right' })
+
+  if (validReadings.length === 0) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(...COLOR_MUTED)
+    doc.text('Sem leituras válidas de temperatura no período.', x + w / 2, y + h / 2 + 2, {
+      align: 'center',
+    })
+    return
+  }
 
   const px = x + 11
   const py = y + 10.5
   const pw = w - 15
   const ph = h - 18.5
 
-  const temps = readings.map((r) => r.temperature)
-  const minT = Math.min(15, Math.floor(Math.min(...temps) - 2))
-  const maxT = Math.max(28, Math.ceil(Math.max(...temps) + 2))
+  const temps = validReadings.map((r) => r.temperature)
+  const rawMin = Math.min(...temps)
+  const rawMax = Math.max(...temps)
+  const minT = Math.max(0, Math.floor(Math.min(rawMin, 22) - 2))
+  const maxT = Math.ceil(Math.max(rawMax, 26) + 2)
 
-  // Horizontal grid (3 ticks)
+  // Horizontal grid (4 ticks)
   doc.setFontSize(6.2)
-  for (let i = 0; i <= 3; i++) {
-    const frac = i / 3
+  for (let i = 0; i <= 4; i++) {
+    const frac = i / 4
     const gy = py + ph * (1 - frac)
     doc.setDrawColor(232, 237, 244)
     doc.setLineWidth(0.2)
@@ -393,16 +431,18 @@ function drawTemperatureChart(
 
     const val = minT + frac * (maxT - minT)
     doc.setTextColor(...COLOR_MUTED)
-    doc.text(`${Math.round(val)}°`, px - 1.8, gy + 1.1, { align: 'right' })
+    doc.text(`${formatDecimalBR(val, 0)}°`, px - 1.8, gy + 1.1, { align: 'right' })
   }
 
   // 25 C dashed limit line
-  const limitY = py + ph * (1 - (25 - minT) / (maxT - minT))
-  doc.setDrawColor(...COLOR_RED)
-  doc.setLineDashPattern([1.4, 1.2], 0)
-  doc.setLineWidth(0.35)
-  doc.line(px, limitY, px + pw, limitY)
-  doc.setLineDashPattern([], 0)
+  if (25 >= minT && 25 <= maxT) {
+    const limitY = py + ph * (1 - (25 - minT) / (maxT - minT))
+    doc.setDrawColor(...COLOR_RED)
+    doc.setLineDashPattern([1.4, 1.2], 0)
+    doc.setLineWidth(0.35)
+    doc.line(px, limitY, px + pw, limitY)
+    doc.setLineDashPattern([], 0)
+  }
 
   // Axes
   doc.setDrawColor(...COLOR_BORDER)
@@ -410,16 +450,19 @@ function drawTemperatureChart(
   doc.line(px, py, px, py + ph)
   doc.line(px, py + ph, px + pw, py + ph)
 
-  // Line series (downsample only if > 40 readings)
+  // Line series (downsample only if > 40 valid readings)
   const points =
-    readings.length > 40
-      ? readings.filter((_, idx) => idx % Math.ceil(readings.length / 40) === 0 || idx === readings.length - 1)
-      : readings
+    validReadings.length > 40
+      ? validReadings.filter(
+          (_, idx) =>
+            idx % Math.ceil(validReadings.length / 40) === 0 || idx === validReadings.length - 1,
+        )
+      : validReadings
 
   const xForIndex = (idx: number) =>
     points.length === 1 ? px + pw / 2 : px + (idx / (points.length - 1)) * pw
   const yForTemp = (val: number) =>
-    py + ph * (1 - Math.max(0, Math.min(val - minT, maxT - minT)) / (maxT - minT))
+    py + ph * (1 - Math.max(0, Math.min(val - minT, maxT - minT)) / Math.max(1, maxT - minT))
 
   doc.setDrawColor(...COLOR_ORANGE_700)
   doc.setLineWidth(0.55)
@@ -438,17 +481,22 @@ function drawTemperatureChart(
     doc.circle(xForIndex(idx), yForTemp(pt.temperature), 0.9, 'F')
   })
 
-  // X-axis labels (up to 4 evenly spaced dates)
+  // X-axis labels (up to 4 evenly spaced dates or HH:mm if same day)
+  const sameDay = isSameCalendarDay(points)
   const maxLabels = Math.min(4, points.length)
   doc.setFontSize(6.2)
   doc.setTextColor(...COLOR_MUTED)
   if (maxLabels === 1) {
-    doc.text(shortDateLabel(points[0].timestamp), xForIndex(0), py + ph + 4.2, { align: 'center' })
+    doc.text(shortAxisLabel(points[0].timestamp, false), xForIndex(0), py + ph + 4.2, {
+      align: 'center',
+    })
   } else {
     for (let k = 0; k < maxLabels; k++) {
       const idx = Math.round((k / (maxLabels - 1)) * (points.length - 1))
       const align = k === 0 ? 'left' : k === maxLabels - 1 ? 'right' : 'center'
-      doc.text(shortDateLabel(points[idx].timestamp), xForIndex(idx), py + ph + 4.2, { align })
+      doc.text(shortAxisLabel(points[idx].timestamp, sameDay), xForIndex(idx), py + ph + 4.2, {
+        align,
+      })
     }
   }
 }
@@ -473,7 +521,12 @@ export function buildTechnicalBulletinPdf(input: GenerateBulletinPdfInput): jsPD
   const indicators = computeBulletinIndicators(sortedReadings)
   const phStats = computeMetricStats(sortedReadings.map((r) => r.ph))
   const turbStats = computeMetricStats(sortedReadings.map((r) => r.turbidity))
-  const tempStats = computeMetricStats(sortedReadings.map((r) => r.temperature))
+  const validTemps = sortedReadings
+    .map((r) => r.temperature)
+    .filter((t) => isValidWaterTemperature(t))
+  const tempStats = computeMetricStats(
+    validTemps.length > 0 ? validTemps : sortedReadings.map((r) => r.temperature),
+  )
   const resStats = computeMetricStats(sortedReadings.map((r) => r.reservoirLevel))
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
