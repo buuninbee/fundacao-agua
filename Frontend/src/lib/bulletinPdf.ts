@@ -348,7 +348,7 @@ function drawStatusDistributionChart(
 }
 
 /**
- * Vector Temperature Sparkline / Bar Chart with 25 C critical threshold.
+ * Vector Temperature Line Chart with 25 C critical threshold.
  */
 function drawTemperatureChart(
   doc: jsPDF,
@@ -404,40 +404,51 @@ function drawTemperatureChart(
   doc.line(px, limitY, px + pw, limitY)
   doc.setLineDashPattern([], 0)
 
-  // Bars (max 16 most recent or evenly sampled)
-  const bars =
-    readings.length > 16
-      ? readings.filter((_, idx) => idx % Math.ceil(readings.length / 16) === 0 || idx === readings.length - 1)
-      : readings
-
-  const slotW = pw / Math.max(1, bars.length)
-  const barW = Math.min(5, Math.max(1.6, slotW * 0.62))
-
-  bars.forEach((pt, idx) => {
-    const cx = px + idx * slotW + slotW / 2
-    const ratio = Math.max(0.05, Math.min(1, (pt.temperature - minT) / (maxT - minT)))
-    const bh = ratio * ph
-    const by = py + ph - bh
-    const fill: Rgb = pt.temperature >= 25 ? COLOR_RED : COLOR_ORANGE_700
-    doc.setFillColor(...fill)
-    doc.rect(cx - barW / 2, by, barW, bh, 'F')
-  })
-
   // Axes
   doc.setDrawColor(...COLOR_BORDER)
   doc.setLineWidth(0.3)
   doc.line(px, py, px, py + ph)
   doc.line(px, py + ph, px + pw, py + ph)
 
-  // Start / end dates
+  // Line series (downsample only if > 40 readings)
+  const points =
+    readings.length > 40
+      ? readings.filter((_, idx) => idx % Math.ceil(readings.length / 40) === 0 || idx === readings.length - 1)
+      : readings
+
+  const xForIndex = (idx: number) =>
+    points.length === 1 ? px + pw / 2 : px + (idx / (points.length - 1)) * pw
+  const yForTemp = (val: number) =>
+    py + ph * (1 - Math.max(0, Math.min(val - minT, maxT - minT)) / (maxT - minT))
+
+  doc.setDrawColor(...COLOR_ORANGE_700)
+  doc.setLineWidth(0.55)
+  for (let i = 1; i < points.length; i++) {
+    doc.line(
+      xForIndex(i - 1),
+      yForTemp(points[i - 1].temperature),
+      xForIndex(i),
+      yForTemp(points[i].temperature),
+    )
+  }
+
+  points.forEach((pt, idx) => {
+    const dotColor: Rgb = pt.temperature >= 25 ? COLOR_RED : COLOR_ORANGE_700
+    doc.setFillColor(...dotColor)
+    doc.circle(xForIndex(idx), yForTemp(pt.temperature), 0.9, 'F')
+  })
+
+  // X-axis labels (up to 4 evenly spaced dates)
+  const maxLabels = Math.min(4, points.length)
   doc.setFontSize(6.2)
   doc.setTextColor(...COLOR_MUTED)
-  if (bars.length > 0) {
-    doc.text(shortDateLabel(bars[0].timestamp), px, py + ph + 4.2)
-    if (bars.length > 1) {
-      doc.text(shortDateLabel(bars[bars.length - 1].timestamp), px + pw, py + ph + 4.2, {
-        align: 'right',
-      })
+  if (maxLabels === 1) {
+    doc.text(shortDateLabel(points[0].timestamp), xForIndex(0), py + ph + 4.2, { align: 'center' })
+  } else {
+    for (let k = 0; k < maxLabels; k++) {
+      const idx = Math.round((k / (maxLabels - 1)) * (points.length - 1))
+      const align = k === 0 ? 'left' : k === maxLabels - 1 ? 'right' : 'center'
+      doc.text(shortDateLabel(points[idx].timestamp), xForIndex(idx), py + ph + 4.2, { align })
     }
   }
 }
